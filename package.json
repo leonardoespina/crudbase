@@ -1,0 +1,50 @@
+{
+  "name": "crudbase",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:studio": "prisma studio",
+    "gen:crud": "tsx scripts/gen-crud.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@quasar/extras": "^1.18.0",
+    "bcryptjs": "^3.0.3",
+    "dayjs": "^1.11.13",
+    "jsonwebtoken": "^9.0.3",
+    "lru-cache": "^11.0.2",
+    "mitt": "^3.0.1",
+    "nuxt": "^3.15.4",
+    "pg": "^8.13.3",
+    "pinia": "^2.3.1",
+    "quasar": "^2.19.3",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@nuxt/test-utils": "^3.15.4",
+    "@pinia/nuxt": "^0.9.0",
+    "@prisma/client": "^6.4.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.11.11",
+    "dotenv": "^16.4.7",
+    "nuxt-quasar-ui": "^3.0.1",
+    "prisma": "^6.4.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}

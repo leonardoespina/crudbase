@@ -83,6 +83,20 @@
           </q-item-section>
           <q-item-section>Auditoría</q-item-section>
         </q-item>
+
+        <!-- Configuración Corporativa -->
+        <q-item
+          v-if="can('SETTINGS', 'update')"
+          clickable
+          v-ripple
+          to="/admin/settings"
+          active-class="bg-blue-1 text-primary"
+        >
+          <q-item-section avatar>
+            <q-icon name="settings" />
+          </q-item-section>
+          <q-item-section>Configuración</q-item-section>
+        </q-item>
       </q-list>
     </q-expansion-item>
   </q-list>

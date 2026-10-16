@@ -10,13 +10,25 @@
         @click="$emit('toggleSidebar')"
       />
 
-      <q-toolbar-title class="text-weight-bold">
-        {{ config.public.appName }}
-      </q-toolbar-title>
+      <!-- Logotipo o Nombre Corporativo en la barra superior -->
+      <div class="row items-center q-ml-sm cursor-pointer" @click="navigateTo('/')">
+        <img
+          v-if="settings.logo"
+          :src="settings.logo"
+          alt="Logo"
+          style="max-height: 32px; max-width: 120px; object-fit: contain;"
+          class="q-mr-sm"
+        />
+        <div class="text-weight-bold text-subtitle1">
+          {{ settings.appName }}
+        </div>
+      </div>
+
+      <q-space />
 
       <!-- Indicador de Sede Activa -->
       <div v-if="auth.user?.branchName" class="q-mr-md gt-xs">
-        <q-chip color="primary-light" text-color="white" icon="store" dense>
+        <q-chip color="blue-9" text-color="white" icon="store" dense>
           {{ auth.user.branchName }}
         </q-chip>
       </div>
@@ -95,8 +107,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useAuthStore } from '../../stores/auth'
+import { useSettingsStore } from '../../stores/settings'
 import { useNotifications } from '../../composables/core/useNotifications'
 
 defineEmits<{
@@ -104,7 +117,7 @@ defineEmits<{
 }>()
 
 const auth = useAuthStore()
-const config = useRuntimeConfig()
+const settings = useSettingsStore()
 const notify = useNotifications()
 
 const isPasswordDialogOpen = ref(false)
@@ -112,6 +125,10 @@ const passwordLoading = ref(false)
 const passwordForm = ref({
   currentPassword: '',
   newPassword: ''
+})
+
+onMounted(() => {
+  settings.fetchPublicSettings()
 })
 
 const submitPasswordChange = async () => {

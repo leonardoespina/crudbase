@@ -2,8 +2,17 @@
   <div class="fullscreen row items-center justify-center bg-grey-2 q-pa-md">
     <q-card class="q-pa-lg shadow-4 rounded-borders" style="width: 100%; max-width: 420px;">
       <q-card-section class="text-center q-pb-none">
-        <q-avatar size="64px" color="primary" text-color="white" icon="lock" class="q-mb-md" />
-        <div class="text-h5 text-weight-bold text-primary">{{ config.public.appName }}</div>
+        <!-- Logotipo Corporativo Dinámico o Icono por Defecto -->
+        <div v-if="settings.logo" class="q-mb-md">
+          <img
+            :src="settings.logo"
+            alt="Logo"
+            style="max-height: 80px; max-width: 220px; object-fit: contain;"
+          />
+        </div>
+        <q-avatar v-else size="64px" color="primary" text-color="white" icon="lock" class="q-mb-md" />
+
+        <div class="text-h5 text-weight-bold text-primary">{{ settings.appName }}</div>
         <div class="text-caption text-grey-7 q-mt-xs">Inicia sesión con tus credenciales autorizadas</div>
       </q-card-section>
 
@@ -62,8 +71,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useSettingsStore } from '../stores/settings'
 import { useNotifications } from '../composables/core/useNotifications'
 
 definePageMeta({
@@ -71,12 +81,16 @@ definePageMeta({
 })
 
 const auth = useAuthStore()
-const config = useRuntimeConfig()
+const settings = useSettingsStore()
 const notify = useNotifications()
 
 const username = ref('')
 const password = ref('')
 const showPassword = ref(false)
+
+onMounted(async () => {
+  await settings.fetchPublicSettings()
+})
 
 const handleLogin = async () => {
   try {

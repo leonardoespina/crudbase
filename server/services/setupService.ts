@@ -28,42 +28,56 @@ export class SetupService {
    * Verifica si el sistema ya se encuentra instalado.
    */
   static async isInstalled(): Promise<boolean> {
-    const setting = await prisma.systemSetting.findUnique({
-      where: { key: 'SYSTEM_INSTALLED' }
-    })
+    try {
+      const setting = await prisma.systemSetting.findUnique({
+        where: { key: 'SYSTEM_INSTALLED' }
+      })
 
-    if (setting?.value === 'true') {
-      return true
+      if (setting?.value === 'true') {
+        return true
+      }
+
+      // Doble verificación: si ya existen usuarios registrados, el sistema está en uso
+      const userCount = await prisma.user.count()
+      return userCount > 0
+    } catch {
+      return false
     }
-
-    // Doble verificación: si ya existen usuarios registrados, el sistema está en uso
-    const userCount = await prisma.user.count()
-    return userCount > 0
   }
 
   /**
    * Obtiene la configuración pública de la empresa (Nombre, Logo, Zona Horaria)
    */
   static async getPublicSettings() {
-    const settings = await prisma.systemSetting.findMany({
-      where: {
-        key: {
-          in: ['COMPANY_NAME', 'COMPANY_TAX_ID', 'COMPANY_LOGO', 'APP_TIMEZONE', 'SYSTEM_INSTALLED']
+    try {
+      const settings = await prisma.systemSetting.findMany({
+        where: {
+          key: {
+            in: ['COMPANY_NAME', 'COMPANY_TAX_ID', 'COMPANY_LOGO', 'APP_TIMEZONE', 'SYSTEM_INSTALLED']
+          }
         }
+      })
+
+      const map = settings.reduce((acc: Record<string, string>, curr) => {
+        acc[curr.key] = curr.value
+        return acc
+      }, {})
+
+      return {
+        appName: map['COMPANY_NAME'] || process.env.APP_NAME || 'CRUDBASE',
+        taxId: map['COMPANY_TAX_ID'] || '',
+        logo: map['COMPANY_LOGO'] || null,
+        timezone: map['APP_TIMEZONE'] || process.env.APP_TIMEZONE || 'America/Caracas',
+        isInstalled: map['SYSTEM_INSTALLED'] === 'true'
       }
-    })
-
-    const map = settings.reduce((acc: Record<string, string>, curr) => {
-      acc[curr.key] = curr.value
-      return acc
-    }, {})
-
-    return {
-      appName: map['COMPANY_NAME'] || process.env.APP_NAME || 'CRUDBASE',
-      taxId: map['COMPANY_TAX_ID'] || '',
-      logo: map['COMPANY_LOGO'] || null,
-      timezone: map['APP_TIMEZONE'] || process.env.APP_TIMEZONE || 'America/Caracas',
-      isInstalled: map['SYSTEM_INSTALLED'] === 'true'
+    } catch {
+      return {
+        appName: process.env.APP_NAME || 'CRUDBASE',
+        taxId: '',
+        logo: null,
+        timezone: process.env.APP_TIMEZONE || 'America/Caracas',
+        isInstalled: false
+      }
     }
   }
 

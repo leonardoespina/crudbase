@@ -14,7 +14,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const taxId = ref('')
   const logo = ref<string | null>(null)
   const timezone = ref('America/Caracas')
-  const isInstalled = ref(true)
+  const isInstalled = ref(false)
   const loaded = ref(false)
 
   async function fetchPublicSettings(force = false) {
@@ -26,11 +26,12 @@ export const useSettingsStore = defineStore('settings', () => {
       taxId.value = data.taxId || ''
       logo.value = data.logo || null
       timezone.value = data.timezone || 'America/Caracas'
-      isInstalled.value = data.isInstalled ?? true
+      isInstalled.value = data.isInstalled ?? false
       loaded.value = true
       return data
     } catch {
       // Fallback
+      isInstalled.value = false
       loaded.value = true
     }
   }

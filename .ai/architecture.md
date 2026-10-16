@@ -1,41 +1,58 @@
-# 🏗️ Arquitectura Hexagonal Ligera
+# 🏗️ Arquitectura Backend (3 Capas Pragmáticas)
 
 **Stack:** Nuxt 3 (Nitro) + TypeScript estricto (`strict: true`).
 
-## Estructura
-```
+## 1. Estructura del Servidor
+```text
 server/
-  domain/        # Capa 1: tipos, reglas puras, errores, puertos (interfaces)
-  repository/    # Capa 2: acceso a datos (único lugar con prisma)
-  services/      # Capa 3: casos de uso
-  api/           # Capa 4: handlers HTTP
-  utils/         # prisma singleton, eventBus, defineApiHandler, env
-  plugins/       # arranque Nitro (env check, listeners)
+  api/           # Capa 1 (Controlador HTTP): Rutas, auth, validación Zod de entrada
+  services/      # Capa 2 (Negocio): Reglas de dominio, transacciones, auditoría, Socket.io
+  utils/         # Capa 3 (Infraestructura/Datos):
+    prisma.ts    # Singleton de Prisma + Extensión de Soft Delete
+    auth.ts      # JWT, cookies HttpOnly, requireAuth, requirePermission
+    cache.ts     # Caché L1 en memoria (LRU) para permisos y SystemSetting
+    errors.ts    # AppError y handleApiError
+    audit.ts     # logAudit() para trazabilidad en AuditLog
+    idempotency.ts # executeIdempotent() contra doble clic / reintentos de red
+    time.ts      # Fechas UTC y rangos por zona horaria local
+    logger.ts    # Logger estructurado con Winston
+  plugins/
+    01.env-check.ts # Validación Fail-Fast de variables de entorno
+    02.socket.ts    # Servidor Socket.io acoplado a Nitro
 ```
 
-## Capa 1 — Domain (`server/domain/`)
-- Tipos, interfaces, validaciones puras, cálculos de negocio, jerarquía de errores (`DomainError`, `ValidationError`, `NotFoundError`, `ForbiddenError`, `ConflictError`).
-- **Puertos:** interfaces para dependencias externas (ej: `AiProvider`, `Notifier`) que implementan los services/adaptadores.
-- **PROHIBIDO:** importar librerías externas (prisma, h3, mitt, etc.). Solo funciones puras. *Excepción permitida:* esquemas Zod de validación.
+## 2. Responsabilidades por Capa
 
-## Capa 2 — Repository (`server/repository/`)
-- **ÚNICO** lugar donde se importa `prisma`.
-- Solo queries. Acepta un cliente de transacción opcional (`tx`).
-- **PROHIBIDO:** decisiones de negocio, validaciones, emitir eventos.
+### Capa 1 — Handlers HTTP (`server/api/**`)
+- Autenticar y autorizar la petición con `requireAuth(event)` o `requirePermission(event, 'MODULE_CODE', 'action')`.
+- Extraer y validar `body`, `query` o `params` usando esquemas **Zod**.
+- Delegar la ejecución a un servicio en `server/services/`.
+- Capturar errores mediante `handleApiError(event, error)`.
+- **PROHIBIDO:** escribir lógica de negocio compleja o transacciones multi-tabla directamente en el handler.
 
-## Capa 3 — Service (`server/services/`)
-- Orquesta casos de uso: decide, coordina transacciones, emite eventos.
-- **PROHIBIDO:** importar prisma; conocer HTTP (`event`, `readBody`).
-- **Tamaño RECOMENDADO:** ≤150 líneas. **DEBE** dividirse si supera ~250 líneas en sub‑servicios cohesivos: `server/services/<modulo>/{index,create,query,...}.ts`.
+### Capa 2 — Servicios de Negocio (`server/services/**`)
+- Contienen toda la lógica de negocio, validaciones de dominio y aislamiento multisede (`branchId`).
+- Ejecutan escrituras compuestas dentro de `prisma.$transaction(async (tx) => { ... })`.
+- Registran auditoría con `logAudit(tx, ...)` dentro de la misma transacción.
+- Emiten eventos en tiempo real (`emitSocketEvent`, `emitToBranch`) **después** de confirmar la transacción.
+- Lanzan errores controlados mediante `new AppError(statusCode, code, message)` (ej. `400`, `403`, `404`, `409`).
+- **PROHIBIDO:** depender del objeto HTTP `H3Event` cuando el servicio pueda recibir parámetros tipados + `actor`.
 
-## Capa 4 — Handler (`server/api/`)
-- Adaptador HTTP: parsear y validar input (Zod), obtener usuario de sesión, llamar a **un** service, devolver respuesta.
-- **DEBE** envolverse en `defineApiHandler()` (mapea `DomainError` → código HTTP).
-- **PROHIBIDO:** lógica de negocio, emitir eventos. Tamaño RECOMENDADO: ≤20 líneas.
+### Capa 3 — Acceso a Datos (`server/utils/prisma.ts`)
+- Único punto de instancia de `PrismaClient`.
+- Incorpora la extensión automática de **Soft Delete** (`deletedAt: null`).
 
-## Regla de dependencias
-✅ `Handler → Service → Repository` y todos pueden usar `Domain`.
-
-- Repository nunca importa Service. Service nunca importa Handler.
-- **CRUD trivial** (catálogos sin reglas): el handler puede llamar al repository directamente.
-- Un archivo no debe depender de más de 2 capas adyacentes (+ Domain).
+## 3. Contratos Estándar de Respuesta API
+- **Listados paginados (`GET`):** DEBEN devolver siempre la estructura:
+  ```ts
+  {
+    items: T[],
+    meta: {
+      total: number,
+      page: number,
+      limit: number,
+      totalPages: number
+    }
+  }
+  ```
+- **Errores HTTP:** `handleApiError` estandariza las respuestas de error con `{ statusCode, statusMessage, data: { code } }`.

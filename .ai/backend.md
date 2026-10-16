@@ -1,34 +1,30 @@
-# ⚙️ Backend, Datos y Eventos
+# ⚙️ Backend, Base de Datos y Utilidades Core
 
 ## 1. Prisma / PostgreSQL
-- **Singleton:** importar SIEMPRE desde `~/server/utils/prisma`. PROHIBIDO `new PrismaClient()` en otro lugar.
-- **Transacciones:** si un caso de uso modifica varias tablas, el service usa `prisma.$transaction` (vía repository) y los repositorios aceptan `tx` opcional.
-- **Select explícito:** consultas sobre usuarios NUNCA exponen `passwordHash`, tokens ni datos personales innecesarios.
-- **IDs:** RECOMENDADO `cuid()`/`uuid()` (evita colisiones si en el futuro se sincronizan sedes).
-- **Dinero y cantidades fraccionarias:** DEBE usarse `Decimal` (nunca `Float`).
-- **Fechas:** guardar en UTC (`timestamptz`); convertir a zona local solo en frontend.
-- **Paginación:** listados DEBEN paginar (por defecto 50, máx. 200).
+- **Singleton:** importar SIEMPRE `prisma` desde `~/server/utils/prisma`. PROHIBIDO instanciar `new PrismaClient()` fuera de ese archivo (salvo en el instalador `/api/setup/database.post.ts` antes de inicializar el esquema).
+- **Transacciones:** toda operación que modifique más de una tabla o registre auditoría DEBE usar `prisma.$transaction(async (tx) => { ... })`.
+- **Select explícito:** las consultas sobre `User` NUNCA deben devolver `passwordHash`.
+- **Dinero y cantidades fraccionarias:** DEBE usarse `Decimal` en Prisma (nunca `Float`).
+- **Paginación:** todo listado de entidades de negocio DEBE ser paginado en servidor (`page`, `limit`, `search`).
 
-## 2. Soft Delete (obligatorio)
-- PROHIBIDO `delete()` / `deleteMany()` en entidades de negocio. Usar `deletedAt DateTime?`.
-- DEBE existir una **Prisma Client Extension** que filtre `deletedAt: null` por defecto, para no filtrar a mano en cada query.
-- Campos únicos (ej: código, placa, email) DEBEN usar **índice único parcial** `WHERE "deletedAt" IS NULL` (migración SQL manual).
-- *Excepción:* tablas técnicas (sesiones, tokens expirados, caché) pueden borrarse físicamente.
+## 2. Soft Delete Automático (`deletedAt`)
+- PROHIBIDO borrar físicamente entidades de negocio (`User`, `Role`, `Branch`, y tablas operativas).
+- `server/utils/prisma.ts` intercepta `findMany`, `findFirst`, `count`, `delete` y `deleteMany` para aplicar `deletedAt: null` y transformar borrados en `update({ data: { deletedAt: new Date() } })`.
+- **Escape hatch:** si un caso de uso administrativo necesita consultar registros eliminados, pasar `_includeDeleted: true` en el objeto `where`.
+- **Validación de unicidad con Soft Delete:** antes de crear o actualizar códigos/emails únicos, verificar colisiones con registros activos o usar índices únicos parciales.
 
-## 3. Entorno (Fail‑Fast)
-- Validar variables con Zod en `server/utils/env.ts` al arrancar (plugin Nitro).
-- Si falta una crítica (`DATABASE_URL`, `SESSION_SECRET`, …): log de ERROR y `process.exit(1)`.
-- PROHIBIDO leer `process.env` fuera de `env.ts`.
-- `.env` NUNCA se commitea; mantener `.env.example` actualizado.
+## 3. Fechas y Zona Horaria (`server/utils/time.ts`)
+- Toda fecha se almacena en **UTC** en PostgreSQL.
+- Para filtrar cortes diarios o reportes ("ventas de hoy", "órdenes del día") según la hora local del cliente/sede (`TIMEZONE`), usar SIEMPRE `getLocalDayRangeUtc(dateStr)` de `server/utils/time.ts`.
 
-## 4. Errores y logging
-- Services lanzan `DomainError` y subclases; `defineApiHandler` los traduce a HTTP. Errores no controlados → 500 genérico sin stack al cliente.
-- Logger estructurado (ej: `consola`/`pino`) con nivel por entorno. PROHIBIDO loguear contraseñas, tokens o payloads completos.
+## 4. Idempotencia en Operaciones Críticas (`server/utils/idempotency.ts`)
+- En endpoints críticos (`POST` de pagos, cierres de orden, movimientos de stock), envolver la ejecución con `executeIdempotent(event, async () => { ... })`.
+- Si el cliente envía la cabecera `x-idempotency-key`, el backend garantiza que un doble clic o corte de red en LAN no duplique la transacción.
 
-## 5. Eventos desacoplados (mitt)
-- Bus in‑memory en `server/utils/eventBus.ts`, tipado (`type Events = { 'order:created': Order }`).
-- **Nomenclatura:** hechos pasados `entidad:verbo-pasado` (`stock:depleted`).
-- **Emisión:** SOLO services, y **después** de confirmar la transacción.
-- **Listeners** (`server/plugins/eventListeners.ts`): `mitt` es síncrono, por lo que cada listener DEBE ejecutar su trabajo en `setImmediate`/`queueMicrotask` y envolverlo en `try/catch`. Un listener NUNCA rompe el flujo del emisor.
-- Los eventos in‑memory se pierden al reiniciar. Si un efecto es **crítico** (sincronización, facturación, notificaciones obligatorias) usar una tabla **outbox** persistente.
-- Socket.io (si se usa) es solo un listener más del bus.
+## 5. Caché L1 en Memoria (`server/utils/cache.ts`)
+- `permissionCache`: almacena la matriz de permisos de cada `roleId` (TTL 5 min). DEBE invalidarse con `invalidateRoleCache(roleId)` al editar permisos en `roleService.ts`.
+- `settingsCache`: almacena `SystemSetting` como el estado de instalación y branding corporativo.
+
+## 6. Tiempo Real (`server/plugins/02.socket.ts`)
+- Socket.io corre en el mismo puerto que Nitro (`path: '/socket.io'`).
+- Usar `emitSocketEvent(event, payload)` para eventos globales o `emitToBranch(branchId, event, payload)` para notificar únicamente a los clientes conectados de una sede específica.

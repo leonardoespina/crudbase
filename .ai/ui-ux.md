@@ -1,23 +1,17 @@
-# 🎨 Interfaz Visual y UX
+# 🎨 Interfaz Visual y UX (Quasar Framework)
 
-**Stack:** Quasar Framework integrado vía `nuxt-quasar-ui`.
+**Stack:** Quasar Framework vía `nuxt-quasar-ui` + Material Icons.
 
-## 1. Estilos
-- Interfaz con componentes Quasar (`q-card`, `q-btn`, `q-input`, `q-table`) y clases utilitarias (`q-pa-md`, `text-primary`).
-- PROHIBIDO CSS inline (`style="..."`) y HTML primitivo cuando existe equivalente Quasar (`<button>`, `<table>`, `<input>`, `<select>`).
-- PROHIBIDO `<style>` en componentes. **Excepciones permitidas** (con `scoped`): vistas de impresión (`@media print`) y contenedores de gráficos.
-- Tema (colores de marca) centralizado en la configuración de Quasar / `app.scss`, nunca por componente.
+## 1. Estándares Visuales
+- Utilizar los componentes de Quasar (`q-card`, `q-btn`, `q-input`, `q-select`, `q-table`, `q-banner`, `q-stepper`) con diseño limpio (`flat`, `bordered`, `outlined`, `dense` en formularios).
+- PROHIBIDO usar `alert()` o `confirm()` nativos del navegador: usar siempre `useNotify()` y `useConfirm()`.
+- Tema de colores corporativo centralizado en `nuxt.config.ts` (`quasar.config.brand`) y variables globales en `app/assets/scss/main.scss`.
 
-## 2. Responsividad
-- Grilla Quasar (`row q-col-gutter-md`, `col-12 col-md-6`).
-- Tablas extensas: ocultar columnas secundarias en pantallas pequeñas (`$q.screen.lt.md`) o usar `q-table` en modo `grid`/tarjetas en móvil.
-- Acciones principales con tamaño táctil adecuado (`size="md"` o mayor) para uso en tablet/móvil.
+## 2. Responsividad y Tablas Adaptativas
+- Utilizar el sistema de grillas de Quasar (`row q-col-gutter-md`, `col-12 col-md-6`).
+- Todas las tablas de listado DEBEN usar `<SharedCrudTable>` que activa automáticamente `:grid="$q.screen.lt.md"`, transformando las filas en tarjetas legibles cuando se abre desde celulares o tablets.
 
-## 3. Prevención de errores
-- Todo botón que envía datos DEBE usar `:loading` mientras dura la petición (evita doble envío).
-- Guardados y acciones destructivas notifican con el composable `useNotifications()`. PROHIBIDO `alert()`/`confirm()` nativos.
-- Acciones irreversibles o de borrado: confirmación con `$q.dialog()`.
-- Formularios: validación en cliente (reglas Quasar) como ayuda, la validación real es en el backend.
-
-## 4. Estados de vista
-- Toda vista con datos maneja: cargando (`q-skeleton`/`q-inner-loading`), vacío (mensaje + acción), error (mensaje + reintentar).
+## 3. Prevención de Errores en Formularios
+- Todo botón de guardado o acción asíncrona DEBE vincular `:loading="saving"` para evitar múltiples envíos.
+- Validar campos obligatorios en cliente mediante `:rules="[val => !!val || 'Campo obligatorio']"` además de la validación Zod en backend.
+- En acciones de eliminación (Soft Delete), solicitar confirmación mediante `useConfirm().confirmDelete(nombreEntidad)`.

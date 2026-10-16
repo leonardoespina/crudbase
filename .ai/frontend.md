@@ -1,24 +1,34 @@
-# 🧠 Lógica Frontend
+# 🧠 Lógica Frontend y Gestión de Estado
 
-**Stack:** Vue 3 (`<script setup lang="ts">`) + Pinia + Nuxt 3 (`ssr: false` para apps internas).
+**Stack:** Vue 3 (`<script setup lang="ts">`) + Pinia + Nuxt 3 (`ssr: false`).
 
-## 1. Componentes (.vue)
-- Los componentes **renderizan y orquestan**; no contienen reglas de negocio.
-- PROHIBIDO `$fetch`/`useFetch` en componentes: las llamadas pasan por un store de Pinia.
-- RECOMENDADO: ≤5 variables reactivas propias de UI (`ref`/`reactive`). Si hay lógica de negocio o flujos complejos, extraer a un composable.
-- RECOMENDADO: ≤250 líneas por componente; dividir en subcomponentes.
+## 1. Estructura en `app/`
+```text
+app/
+  components/
+    layout/        # AppHeader.vue, AppSidebar.vue
+    shared/        # CrudTable.vue, FormDialog.vue, StatusBadge.vue
+  composables/     # useNotify.ts, useConfirm.ts, useSocket.ts
+  layouts/         # default.vue, auth.vue
+  middleware/      # auth.global.ts (Guardia de instalación /setup y sesión JWT)
+  pages/           # Vistas enrutadas por archivo
+  plugins/         # socket.client.ts
+  stores/          # auth.ts (useAuthStore), settings.ts (useSettingsStore)
+```
 
-## 2. Composables (`composables/useXxx.ts`)
-- Flujos de formulario, cálculos, coordinación entre store y UI (notificaciones, diálogos, navegación).
-- Estado de solo lectura expuesto con `readonly()`. **Excepción:** el modelo de un formulario puede exponerse mutable para `v-model`.
-- Sin templates.
+## 2. Componentes y Vistas (`app/pages/**`, `app/components/**`)
+- Usar siempre `<script setup lang="ts">`.
+- Reutilizar los componentes base para todos los módulos CRUD:
+  - `<SharedCrudTable>`: maneja búsqueda con debounce, paginación server-side (`@request`), estados de carga y vista móvil automática (`:grid="$q.screen.lt.md"`).
+  - `<SharedFormDialog>`: envuelve modales de creación/edición con `<q-form>` y botones estandarizados.
+  - `<SharedStatusBadge>`: chips semánticos de estado activo/inactivo.
+- RECOMENDADO: mantener las páginas por debajo de ~250 líneas extrayendo formularios o sub-tablas complejas a `app/components/<modulo>/`.
 
 ## 3. Stores (Pinia)
-- Único puente al backend HTTP. Setup Pattern: `defineStore('name', () => { ... })`.
-- Tras `POST/PUT/DELETE` exitoso, actualizar el estado local en vez de recargar toda la lista.
-- PROHIBIDO en stores: toasts, diálogos, router. El store retorna datos o lanza el error; el composable reacciona.
-- Tipos compartidos con el backend RECOMENDADO en `shared/types/` (no importar nada de `server/` en el cliente).
+- `useAuthStore()` (`app/stores/auth.ts`): gestiona `user`, `login`, `logout`, `fetchMe` y el helper reactivo de permisos `authStore.can('MODULE_CODE', 'action')`.
+- `useSettingsStore()` (`app/stores/settings.ts`): gestiona el estado de instalación (`installed`) y el branding corporativo (`companyName`, `companyTaxId`, `companyLogo`).
 
-## 4. Tiempo real (opcional)
-- Si se usa Socket.io: un único singleton en `composables/core/useSocket.ts`; los stores se suscriben y actualizan su estado.
-- Con pocos usuarios, refrescar al enfocar la pestaña o polling moderado es una alternativa válida y más simple.
+## 4. Composables Core (`app/composables/**`)
+- `useNotify()`: notificaciones tipo toast (`notifySuccess`, `notifyError`, `notifyWarning`).
+- `useConfirm()`: diálogos de confirmación estandarizados antes de acciones destructivas (`confirmDelete`).
+- `useSocket()`: suscripción reactiva a eventos Socket.io con limpieza automática en `onUnmounted`.

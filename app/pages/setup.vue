@@ -101,14 +101,25 @@
                 Base de Datos Lista
               </q-chip>
             </div>
-            <q-btn
-              color="primary"
-              icon="dns"
-              label="Probar, Crear BD y Continuar"
-              unelevated
-              :loading="dbTesting"
-              @click="submitDatabaseSetup"
-            />
+            <div class="q-gutter-sm">
+              <q-btn
+                v-if="!isDbReady"
+                color="primary"
+                icon="dns"
+                label="Probar, Crear BD y Continuar"
+                unelevated
+                :loading="dbTesting"
+                @click="submitDatabaseSetup"
+              />
+              <q-btn
+                v-else
+                color="primary"
+                icon-right="arrow_forward"
+                label="Siguiente: Empresa"
+                unelevated
+                @click="step = 2"
+              />
+            </div>
           </div>
         </q-step>
 

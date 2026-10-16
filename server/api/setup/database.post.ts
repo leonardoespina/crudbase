@@ -66,11 +66,18 @@ export default defineApiHandler(async (event) => {
   const encodedPass = encodeURIComponent(valid.password)
   const databaseUrl = `postgresql://${encodedUser}:${encodedPass}@${valid.host}:${valid.port}/${valid.database}?schema=public`
 
-  // 4. Escribir o actualizar el archivo .env en la raíz del proyecto
+  // 4. Escribir o actualizar el archivo .env SOLO si no existe o cambió la conexión
   const envPath = path.join(process.cwd(), '.env')
-  const jwtSecret = crypto.randomBytes(32).toString('hex')
+  let currentEnv = ''
+  if (fs.existsSync(envPath)) {
+    try {
+      currentEnv = fs.readFileSync(envPath, 'utf8')
+    } catch {}
+  }
 
-  const envContent = `# ── CONFIGURACIÓN DEL ENTORNO GENERADA POR ASISTENTE WEB ──
+  if (!currentEnv.includes(databaseUrl)) {
+    const jwtSecret = crypto.randomBytes(32).toString('hex')
+    const envContent = `# ── CONFIGURACIÓN DEL ENTORNO GENERADA POR ASISTENTE WEB ──
 APP_NAME="CRUDBASE"
 PORT=3000
 NODE_ENV="development"
@@ -79,12 +86,13 @@ JWT_SECRET="${jwtSecret}"
 APP_TIMEZONE="America/Caracas"
 COOKIE_SECURE="false"
 `
-
-  fs.writeFileSync(envPath, envContent, 'utf8')
-  process.env.DATABASE_URL = databaseUrl
-  process.env.JWT_SECRET = jwtSecret
-
-  logger.info(`✅ Archivo .env generado exitosamente con la conexión a '${valid.database}'.`)
+    fs.writeFileSync(envPath, envContent, 'utf8')
+    process.env.DATABASE_URL = databaseUrl
+    process.env.JWT_SECRET = jwtSecret
+    logger.info(`✅ Archivo .env generado exitosamente con la conexión a '${valid.database}'.`)
+  } else {
+    logger.info(`ℹ️ Archivo .env ya contiene la conexión a '${valid.database}', no se sobreescribió.`)
+  }
 
   // 5. Reconectar Prisma a la nueva base de datos
   reloadPrismaClient(databaseUrl)

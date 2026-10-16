@@ -2,6 +2,9 @@ import { prisma } from '../utils/prisma'
 import { ConflictError, NotFoundError, ValidationError } from '../domain/errors'
 import { logAudit } from '../utils/audit'
 
+/**
+ * Filtros para la búsqueda y paginación de cargos laborales.
+ */
 export interface FiltrosCargo {
   busqueda?: string
   activo?: boolean
@@ -10,12 +13,18 @@ export interface FiltrosCargo {
   todos?: boolean
 }
 
+/**
+ * Datos requeridos para crear un cargo.
+ */
 export interface DatosCrearCargo {
   codigo: string
   nombre: string
   descripcion?: string
 }
 
+/**
+ * Datos para actualizar un cargo.
+ */
 export interface DatosActualizarCargo {
   codigo?: string
   nombre?: string
@@ -23,9 +32,15 @@ export interface DatosActualizarCargo {
   activo?: boolean
 }
 
+/**
+ * Servicio de Negocio: Gestión de Cargos
+ *
+ * Administra los puestos laborales que determinan la asignación en tabuladores
+ * de bonificación salarial junto con el nivel jerárquico.
+ */
 export class ServicioCargos {
   /**
-   * Lista cargos con paginación y búsqueda
+   * Obtiene la lista de cargos con soporte de paginación y búsqueda textual.
    */
   static async listar(filtros: FiltrosCargo = {}) {
     const pagina = Math.max(1, Number(filtros.pagina) || 1)
@@ -79,7 +94,7 @@ export class ServicioCargos {
   }
 
   /**
-   * Obtiene un cargo por su ID
+   * Obtiene un cargo por su ID.
    */
   static async obtenerPorId(id: number) {
     const cargo = await prisma.cargo.findUnique({
@@ -94,7 +109,7 @@ export class ServicioCargos {
   }
 
   /**
-   * Crea un nuevo cargo validando código único
+   * Registra un nuevo cargo validando unicidad de código y trazabilidad en auditoría.
    */
   static async crear(datos: DatosCrearCargo, usuarioId?: number, ip?: string) {
     const codigoLimpio = datos.codigo.trim().toUpperCase()
@@ -137,7 +152,7 @@ export class ServicioCargos {
   }
 
   /**
-   * Actualiza los datos de un cargo existente
+   * Actualiza la información de un cargo.
    */
   static async actualizar(id: number, datos: DatosActualizarCargo, usuarioId?: number, ip?: string) {
     const actual = await this.obtenerPorId(id)
@@ -184,7 +199,8 @@ export class ServicioCargos {
   }
 
   /**
-   * Elimina lógicamente un cargo (Soft Delete)
+   * Elimina lógicamente un cargo (Soft Delete).
+   * Impide la eliminación si existen empleados activos asociados a él.
    */
   static async eliminar(id: number, usuarioId?: number, ip?: string) {
     const actual = await this.obtenerPorId(id)

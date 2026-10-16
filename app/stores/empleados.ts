@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+/**
+ * Representación del modelo Empleado en el frontend
+ */
 export interface Empleado {
   id: number
   cedula: string
@@ -21,7 +24,15 @@ export interface Empleado {
   nivelSalarial?: { id: number; codigo: string; nombre: string } | null
 }
 
+/**
+ * Store Pinia: Gestión de Personal y Empleados
+ *
+ * Centraliza la comunicación HTTP con la API, el estado de la lista de trabajadores,
+ * los catálogos auxiliares (gerencias, cargos, niveles, sedes) y las operaciones de
+ * alta, edición, bloqueo preventivo y eliminación lógica.
+ */
 export const useEmpleadosStore = defineStore('empleados', () => {
+  // Estado reactivo
   const empleados = ref<Empleado[]>([])
   const gerencias = ref<any[]>([])
   const cargos = ref<any[]>([])
@@ -32,6 +43,9 @@ export const useEmpleadosStore = defineStore('empleados', () => {
   const page = ref(1)
   const limit = ref(20)
 
+  /**
+   * Carga en paralelo los catálogos auxiliares para poblar los selectores del formulario y filtros
+   */
   async function fetchCatalogos() {
     try {
       const [resGerencias, resCargos, resNiveles, resSedes]: any[] = await Promise.all([
@@ -50,6 +64,9 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     }
   }
 
+  /**
+   * Consulta el listado de empleados en el servidor enviando los filtros activos y paginación
+   */
   async function fetchEmpleados(filtros: any = {}) {
     loading.value = true
     try {
@@ -74,6 +91,9 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     }
   }
 
+  /**
+   * Envía la solicitud de creación de un nuevo empleado al backend
+   */
   async function crearEmpleado(datos: any) {
     const nuevo = await $fetch('/api/empleados', {
       method: 'POST',
@@ -83,6 +103,9 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     return nuevo
   }
 
+  /**
+   * Envía la actualización de un empleado existente
+   */
   async function actualizarEmpleado(id: number, datos: any) {
     const actualizado = await $fetch(`/api/empleados/${id}`, {
       method: 'PUT',
@@ -92,6 +115,13 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     return actualizado
   }
 
+  /**
+   * Ejecuta la acción de bloqueo o desbloqueo preventivo de pagos en caja
+   *
+   * @param id Identificador del empleado
+   * @param bloquear `true` para bloquear pagos, `false` para desbloquear
+   * @param motivo Justificación obligatoria requerida por auditoría
+   */
   async function cambiarBloqueo(id: number, bloquear: boolean, motivo: string) {
     const res = await $fetch(`/api/empleados/${id}/bloqueo`, {
       method: 'PUT',
@@ -101,6 +131,9 @@ export const useEmpleadosStore = defineStore('empleados', () => {
     return res
   }
 
+  /**
+   * Ejecuta la eliminación lógica (Soft Delete) de un empleado
+   */
   async function eliminarEmpleado(id: number) {
     await $fetch(`/api/empleados/${id}`, {
       method: 'DELETE'

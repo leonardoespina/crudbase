@@ -2,20 +2,37 @@ import { prisma } from '../utils/prisma'
 import { ConflictError, NotFoundError, ValidationError } from '../domain/errors'
 import { logAudit } from '../utils/audit'
 
+/**
+ * Filtros para la búsqueda y paginación de gerencias organizacionales.
+ */
 export interface FiltrosGerencia {
+  /** Término de búsqueda en código o nombre */
   busqueda?: string
+  /** Filtrar por estado activo/inactivo */
   activo?: boolean
+  /** Página actual para paginación */
   pagina?: number
+  /** Límite de registros por página */
   limite?: number
+  /** Obtener todas sin paginar (útil para dropdowns/selects) */
   todos?: boolean
 }
 
+/**
+ * Datos requeridos para registrar una gerencia.
+ */
 export interface DatosCrearGerencia {
+  /** Código único de la gerencia (ej: "ADM", "OPERACIONES") */
   codigo: string
+  /** Nombre formal de la gerencia */
   nombre: string
+  /** Descripción complementaria de funciones */
   descripcion?: string
 }
 
+/**
+ * Datos para actualizar una gerencia existente.
+ */
 export interface DatosActualizarGerencia {
   codigo?: string
   nombre?: string
@@ -23,9 +40,15 @@ export interface DatosActualizarGerencia {
   activo?: boolean
 }
 
+/**
+ * Servicio de Negocio: Gestión de Gerencias y Departamentos
+ *
+ * Administra las unidades organizacionales responsables de emitir solicitudes
+ * de pago y agrupar al personal dentro de la empresa.
+ */
 export class ServicioGerencias {
   /**
-   * Lista gerencias con paginación estándar y búsqueda por código/nombre
+   * Obtiene la lista de gerencias con paginación server-side y búsqueda insensible a mayúsculas.
    */
   static async listar(filtros: FiltrosGerencia = {}) {
     const pagina = Math.max(1, Number(filtros.pagina) || 1)
@@ -79,7 +102,10 @@ export class ServicioGerencias {
   }
 
   /**
-   * Obtiene una gerencia por su ID
+   * Obtiene una gerencia por su identificador primario.
+   *
+   * @param id Identificador de la gerencia
+   * @throws NotFoundError Si no existe
    */
   static async obtenerPorId(id: number) {
     const gerencia = await prisma.gerencia.findUnique({
@@ -94,7 +120,7 @@ export class ServicioGerencias {
   }
 
   /**
-   * Crea una nueva gerencia validando código único
+   * Crea una nueva gerencia garantizando unicidad de código y registro en auditoría.
    */
   static async crear(datos: DatosCrearGerencia, usuarioId?: number, ip?: string) {
     const codigoLimpio = datos.codigo.trim().toUpperCase()
@@ -137,7 +163,7 @@ export class ServicioGerencias {
   }
 
   /**
-   * Actualiza los datos de una gerencia existente
+   * Actualiza los datos de una gerencia existente.
    */
   static async actualizar(id: number, datos: DatosActualizarGerencia, usuarioId?: number, ip?: string) {
     const actual = await this.obtenerPorId(id)
@@ -184,12 +210,12 @@ export class ServicioGerencias {
   }
 
   /**
-   * Elimina lógicamente una gerencia (Soft Delete)
+   * Elimina lógicamente una gerencia (Soft Delete).
+   * Valida previamente que no existan trabajadores activos vinculados.
    */
   static async eliminar(id: number, usuarioId?: number, ip?: string) {
     const actual = await this.obtenerPorId(id)
 
-    // Validar si tiene empleados activos vinculados
     const empleadosVinculados = await prisma.empleado.count({
       where: { gerenciaId: id }
     })

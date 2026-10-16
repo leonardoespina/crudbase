@@ -3,30 +3,57 @@ import { ConflictError, NotFoundError, ValidationError } from '../domain/errors'
 import { logAudit } from '../utils/audit'
 import type { UserContext } from '../utils/auth'
 
+/**
+ * Parámetros de consulta y filtrado para el listado de empleados.
+ */
 export interface FiltrosEmpleado {
+  /** Término de búsqueda textual por cédula, nombres o apellidos */
   busqueda?: string
+  /** Identificador de la sede operativa para filtrar registros */
   sedeId?: number
+  /** Identificador de la gerencia o departamento organizacional */
   gerenciaId?: number
+  /** Identificador del cargo o puesto laboral */
   cargoId?: number
+  /** Filtro por estatus de bloqueo preventivo de pagos en taquilla */
   bloqueadoParaPago?: boolean
+  /** Filtro por estatus de actividad del empleado (activo/inactivo) */
   activo?: boolean
+  /** Número de página actual para paginación server-side (base 1) */
   pagina?: number
+  /** Cantidad máxima de registros por página (máx. 200) */
   limite?: number
+  /** Bandera para obtener la totalidad de registros sin paginar */
   todos?: boolean
 }
 
+/**
+ * Estructura de datos requerida para el registro de un nuevo empleado.
+ */
 export interface DatosCrearEmpleado {
+  /** Cédula de identidad oficial (debe ser única en el sistema) */
   cedula: string
+  /** Nombres de pila del trabajador */
   nombres: string
+  /** Apellidos del trabajador */
   apellidos: string
+  /** Correo electrónico de contacto (opcional) */
   correo?: string
+  /** Número de teléfono móvil o local (opcional) */
   telefono?: string
+  /** ID de la sede operativa a la que pertenece el trabajador */
   sedeId: number
+  /** ID de la gerencia donde labora */
   gerenciaId: number
+  /** ID del cargo asignado */
   cargoId: number
+  /** ID del nivel salarial asignado en el tabulador (opcional) */
   nivelSalarialId?: number
 }
 
+/**
+ * Estructura de datos para la actualización de un empleado existente.
+ */
 export interface DatosActualizarEmpleado {
   cedula?: string
   nombres?: string
@@ -40,9 +67,22 @@ export interface DatosActualizarEmpleado {
   activo?: boolean
 }
 
+/**
+ * Servicio de Negocio: Gestión de Personal y Empleados
+ *
+ * Responsabilidades:
+ * - Registro y administración del maestro de trabajadores.
+ * - Aplicación estricta de aislamiento multisede según el rol del usuario autenticado.
+ * - Bloqueo preventivo de pagos (equivalente al formulario frmGpersonalComp del sistema legacy).
+ * - Trazabilidad inalterable de auditoría en todas las operaciones de escritura.
+ */
 export class ServicioEmpleados {
   /**
-   * Lista empleados con soporte multisede, filtros cruzados y paginación
+   * Obtiene un listado paginado de empleados aplicando filtros cruzados y aislamiento multisede.
+   *
+   * @param filtros Criterios de búsqueda y paginación
+   * @param actor Contexto del usuario autenticado para aplicar filtros de sede
+   * @returns Objeto con items paginados y metadatos ({ total, page, limit, totalPages })
    */
   static async listar(filtros: FiltrosEmpleado = {}, actor?: UserContext) {
     const pagina = Math.max(1, Number(filtros.pagina) || 1)
@@ -51,7 +91,9 @@ export class ServicioEmpleados {
 
     const where: any = {}
 
-    // Aislamiento multisede: si no es ADMIN, forzar su sede
+    // Regla de Seguridad Multisede:
+    // Si el usuario no tiene rol ADMIN, se fuerza el filtro a su sede asignada.
+    // NUNCA se confía en el parámetro sedeId enviado por el cliente si el actor no es ADMIN.
     if (actor && !actor.isAdmin && actor.branchId) {
       where.sedeId = actor.branchId
     } else if (filtros.sedeId) {
@@ -74,6 +116,7 @@ export class ServicioEmpleados {
       where.activo = filtros.activo
     }
 
+    // Búsqueda insensible a mayúsculas/minúsculas en cédula, nombres o apellidos
     if (filtros.busqueda?.trim()) {
       const termino = filtros.busqueda.trim()
       where.OR = [
@@ -90,6 +133,7 @@ export class ServicioEmpleados {
       nivelSalarial: { select: { id: true, codigo: true, nombre: true } }
     }
 
+    // Caso de uso para combos y catálogos en frontend (retorna todos ordenados alfabéticamente)
     if (filtros.todos) {
       const items = await prisma.empleado.findMany({
         where,
@@ -102,6 +146,7 @@ export class ServicioEmpleados {
       }
     }
 
+    // Consulta en paralelo de registros paginados y conteo total para la tabla
     const [items, total] = await Promise.all([
       prisma.empleado.findMany({
         where,
@@ -125,7 +170,11 @@ export class ServicioEmpleados {
   }
 
   /**
-   * Obtiene un empleado por su ID con sus relaciones
+   * Consulta el detalle completo de un empleado por su identificador primario.
+   *
+   * @param id Identificador numérico del empleado
+   * @param actor Contexto del usuario autenticado para validar permisos de sede
+   * @throws NotFoundError Si el empleado no existe o pertenece a otra sede no autorizada
    */
   static async obtenerPorId(id: number, actor?: UserContext) {
     const empleado = await prisma.empleado.findUnique({
@@ -146,7 +195,7 @@ export class ServicioEmpleados {
       throw new NotFoundError('Empleado', id)
     }
 
-    // Validación multisede
+    // Validación de aislamiento multisede: los operadores solo pueden ver personal de su sede
     if (actor && !actor.isAdmin && actor.branchId && empleado.sedeId !== actor.branchId) {
       throw new NotFoundError('Empleado', id)
     }
@@ -155,7 +204,12 @@ export class ServicioEmpleados {
   }
 
   /**
-   * Obtiene un empleado por su Cédula de Identidad
+   * Localiza un empleado mediante su Cédula de Identidad oficial.
+   * Útil para búsquedas rápidas en taquilla de caja y carga de personal.
+   *
+   * @param cedula Cédula del trabajador (ej: "V-12345678")
+   * @param actor Contexto de usuario autenticado
+   * @throws NotFoundError Si la cédula no está registrada
    */
   static async obtenerPorCedula(cedula: string, actor?: UserContext) {
     const cedulaLimpia = cedula.trim().toUpperCase()
@@ -181,7 +235,13 @@ export class ServicioEmpleados {
   }
 
   /**
-   * Crea un nuevo empleado en el sistema
+   * Registra un nuevo empleado de forma atómica en la base de datos con bitácora de auditoría.
+   *
+   * @param datos Datos obligatorios y complementarios del empleado
+   * @param actor Contexto del usuario que ejecuta la acción
+   * @param ip Dirección IP de la solicitud HTTP para auditoría
+   * @throws ValidationError Si faltan campos requeridos o las relaciones no existen
+   * @throws ConflictError Si la cédula ya se encuentra registrada en el sistema
    */
   static async crear(datos: DatosCrearEmpleado, actor?: UserContext, ip?: string) {
     const cedulaLimpia = datos.cedula.trim().toUpperCase()
@@ -192,13 +252,13 @@ export class ServicioEmpleados {
       throw new ValidationError('Cédula, nombres y apellidos son campos obligatorios')
     }
 
-    // Asignar sede según el actor si no es admin
+    // Si el actor es operador local, se fuerza a registrar al empleado en su sede
     let sedeFinalId = datos.sedeId
     if (actor && !actor.isAdmin && actor.branchId) {
       sedeFinalId = actor.branchId
     }
 
-    // Validar unicidad de cédula
+    // Regla de unicidad de cédula
     const existe = await prisma.empleado.findUnique({
       where: { cedula: cedulaLimpia }
     })
@@ -206,7 +266,7 @@ export class ServicioEmpleados {
       throw new ConflictError(`Ya existe un empleado registrado con la cédula '${cedulaLimpia}'`)
     }
 
-    // Validar existencia de sede, gerencia y cargo
+    // Verificación de integridad referencial antes de insertar
     const [sedeExiste, gerenciaExiste, cargoExiste] = await Promise.all([
       prisma.branch.findUnique({ where: { id: sedeFinalId } }),
       prisma.gerencia.findUnique({ where: { id: datos.gerenciaId } }),
@@ -217,6 +277,7 @@ export class ServicioEmpleados {
     if (!gerenciaExiste) throw new ValidationError('La gerencia especificada no existe')
     if (!cargoExiste) throw new ValidationError('El cargo especificado no existe')
 
+    // Inserción atómica con transacción y registro de auditoría
     return prisma.$transaction(async (tx) => {
       const nuevo = await tx.empleado.create({
         data: {
@@ -255,13 +316,19 @@ export class ServicioEmpleados {
   }
 
   /**
-   * Actualiza los datos de un empleado
+   * Actualiza los datos personales o laborales de un empleado.
+   *
+   * @param id Identificador del empleado
+   * @param datos Campos a modificar
+   * @param actor Contexto del usuario autenticado
+   * @param ip Dirección IP para auditoría
    */
   static async actualizar(id: number, datos: DatosActualizarEmpleado, actor?: UserContext, ip?: string) {
     const actual = await this.obtenerPorId(id, actor)
 
     const dataToUpdate: any = {}
 
+    // Si cambia de cédula, validar que no choque con otro registro
     if (datos.cedula) {
       const cedulaLimpia = datos.cedula.trim().toUpperCase()
       if (cedulaLimpia !== actual.cedula) {
@@ -285,7 +352,7 @@ export class ServicioEmpleados {
     if (datos.nivelSalarialId !== undefined) dataToUpdate.nivelSalarialId = datos.nivelSalarialId || null
     if (datos.activo !== undefined) dataToUpdate.activo = datos.activo
 
-    // Solo ADMIN puede cambiar de sede a un empleado
+    // Regla de seguridad: Solo el Super Administrador puede reasignar un empleado a otra sede
     if (datos.sedeId && actor?.isAdmin) {
       dataToUpdate.sedeId = datos.sedeId
     }
@@ -319,7 +386,19 @@ export class ServicioEmpleados {
   }
 
   /**
-   * Bloqueo Preventivo de Pagos (Reemplaza frmGpersonalComp en VB6)
+   * Bloqueo o Desbloqueo Preventivo de Pagos (frmGpersonalComp / t_personal_pagos)
+   *
+   * Regla de Negocio:
+   * Cuando Talento Humano o la Gerencia detecta irregularidades, reposos médicos pendientes
+   * o falta de entrega de recaudos, puede suspender preventivamente el pago en taquilla
+   * a un trabajador indicando un motivo formal. La caja rechazará el desembolso hasta
+   * que se levante esta restricción.
+   *
+   * @param empleadoId Identificador del empleado
+   * @param bloquear `true` para bloquear pagos, `false` para desbloquear
+   * @param motivo Justificación obligatoria del bloqueo o desbloqueo
+   * @param actor Usuario que autoriza la medida
+   * @param ip Dirección IP del operador
    */
   static async cambiarBloqueoPago(
     empleadoId: number,
@@ -336,7 +415,7 @@ export class ServicioEmpleados {
     }
 
     return prisma.$transaction(async (tx) => {
-      // 1. Actualizar bandera en el empleado
+      // 1. Actualizar bandera booleana y motivo en la ficha del empleado
       const actualizado = await tx.empleado.update({
         where: { id: empleadoId },
         data: {
@@ -345,7 +424,7 @@ export class ServicioEmpleados {
         }
       })
 
-      // 2. Registrar en la bitácora de bloqueos
+      // 2. Registrar en la bitácora histórica de bloqueos de personal
       if (bloquear) {
         await tx.bloqueoPersonal.create({
           data: {
@@ -356,7 +435,7 @@ export class ServicioEmpleados {
           }
         })
       } else {
-        // Desactivar bloqueos previos activos
+        // Al desbloquear, se cierran los registros de bloqueo activos previos
         await tx.bloqueoPersonal.updateMany({
           where: { empleadoId, activo: true },
           data: {
@@ -367,7 +446,7 @@ export class ServicioEmpleados {
         })
       }
 
-      // 3. Auditoría
+      // 3. Auditoría inalterable del evento de seguridad
       await logAudit(tx, {
         userId: actor.id,
         action: bloquear ? 'BLOCK_PAYMENT' : 'UNBLOCK_PAYMENT',
@@ -382,7 +461,12 @@ export class ServicioEmpleados {
   }
 
   /**
-   * Elimina lógicamente un empleado (Soft Delete)
+   * Elimina lógicamente un empleado mediante Soft Delete (marca `deletedAt`).
+   * No se destruye el registro histórico para mantener la trazabilidad de pagos pasados.
+   *
+   * @param id Identificador del empleado
+   * @param actor Usuario autenticado
+   * @param ip Dirección IP
    */
   static async eliminar(id: number, actor: UserContext, ip?: string) {
     const actual = await this.obtenerPorId(id, actor)

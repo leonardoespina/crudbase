@@ -18,9 +18,10 @@
             <q-form @submit.prevent="saveSettings" class="q-gutter-md">
               <q-input
                 v-model="form.name"
-                label="Nombre Comercial / Razón Social *"
+                label="Nombre de la Aplicación / Empresa *"
                 outlined
                 dense
+                hint="Se mostrará en la barra superior, bienvenida del panel y pestaña del navegador (ej: SIGAT - Sistema de Taller)"
                 :rules="[val => !!val || 'El nombre es obligatorio']"
               />
 

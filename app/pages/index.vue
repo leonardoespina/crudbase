@@ -7,7 +7,7 @@
           ¡Hola, {{ auth.user?.name || auth.user?.username }}!
         </div>
         <div class="text-subtitle1 text-grey-3 q-mt-xs">
-          Bienvenido al panel central de {{ config.public.appName }}. Rol activo: <strong>{{ auth.user?.roleName }}</strong>.
+          Bienvenido al panel central de {{ settingsStore.appName }}. Rol activo: <strong>{{ auth.user?.roleName }}</strong>.
         </div>
       </q-card-section>
     </q-card>
@@ -72,6 +72,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useSettingsStore } from '../stores/settings'
 import { useBranchesStore } from '../stores/branches'
 import { useUsersStore } from '../stores/users'
 import { useRolesStore } from '../stores/roles'
@@ -79,7 +80,7 @@ import { useAuditStore } from '../stores/audit'
 import { usePermissions } from '../composables/core/usePermissions'
 
 const auth = useAuthStore()
-const config = useRuntimeConfig()
+const settingsStore = useSettingsStore()
 const { can } = usePermissions()
 
 const branchesStore = useBranchesStore()
@@ -88,6 +89,7 @@ const rolesStore = useRolesStore()
 const auditStore = useAuditStore()
 
 onMounted(async () => {
+  settingsStore.fetchPublicSettings()
   if (can('BRANCHES', 'read')) branchesStore.fetchBranches()
   if (can('USERS', 'read')) usersStore.fetchUsers()
   if (can('ROLES', 'read')) rolesStore.fetchRoles()

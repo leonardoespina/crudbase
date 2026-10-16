@@ -5,5 +5,14 @@
 </template>
 
 <script setup lang="ts">
-// Entrada principal de la aplicación CRUDBASE
+import { useSettingsStore } from './stores/settings'
+
+const settings = useSettingsStore()
+
+useHead({
+  title: settings.appName,
+  titleTemplate: (title) => {
+    return title && title !== settings.appName ? `${title} | ${settings.appName}` : settings.appName
+  }
+})
 </script>

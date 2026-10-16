@@ -1,11 +1,11 @@
 <template>
   <div class="fullscreen row items-center justify-center bg-grey-2 q-pa-md">
-    <q-card class="shadow-4 rounded-borders" style="width: 100%; max-width: 820px;">
+    <q-card class="shadow-4 rounded-borders" style="width: 100%; max-width: 860px;">
       <!-- Encabezado del Instalador -->
       <q-card-section class="bg-primary text-white text-center q-py-md">
         <q-avatar size="54px" color="white" text-color="primary" icon="rocket_launch" class="q-mb-xs" />
-        <div class="text-h5 text-weight-bold">Asistente de Instalación Inicial</div>
-        <div class="text-caption text-grey-3">Configura tu empresa, sede principal y cuenta de administrador en pocos pasos</div>
+        <div class="text-h5 text-weight-bold">Asistente de Instalación y Configuración</div>
+        <div class="text-caption text-grey-3">Configura tu base de datos, empresa, sede y administrador en minutos</div>
       </q-card-section>
 
       <!-- Stepper de Pasos -->
@@ -17,36 +17,98 @@
         header-nav
         :vertical="$q.screen.lt.sm"
       >
-        <!-- PASO 1: Diagnóstico y Bienvenida -->
-        <q-step :name="1" title="Diagnóstico" icon="settings_suggest" :done="step > 1">
-          <div class="text-subtitle1 text-weight-bold q-mb-sm text-primary">Verificación del Servidor</div>
+        <!-- PASO 1: Conexión y Creación de Base de Datos -->
+        <q-step :name="1" title="Base de Datos" icon="storage" :done="step > 1 || isDbReady">
+          <div class="text-subtitle1 text-weight-bold q-mb-xs text-primary">Conexión a PostgreSQL</div>
           <p class="text-body2 text-grey-8">
-            El asistente verificó la conectividad de la base de datos y los servicios centrales.
+            Ingresa las credenciales de tu motor PostgreSQL. Si la base de datos no existe, 
+            el instalador la creará automáticamente, generará tu archivo <strong>.env</strong> y sincronizará las tablas.
           </p>
 
-          <q-list bordered separator class="rounded-borders q-my-md">
-            <q-item>
-              <q-item-section avatar>
-                <q-icon name="check_circle" color="positive" size="md" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label class="text-weight-medium">Base de Datos PostgreSQL</q-item-label>
-                <q-item-label caption>Conexión establecida exitosamente</q-item-label>
-              </q-item-section>
-            </q-item>
-            <q-item>
-              <q-item-section avatar>
-                <q-icon name="check_circle" color="positive" size="md" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label class="text-weight-medium">Entorno Node.js & Nitro</q-item-label>
-                <q-item-label caption>Runtime activo y listo para provisionar</q-item-label>
-              </q-item-section>
-            </q-item>
-          </q-list>
+          <q-banner v-if="dbSuccessMessage" class="bg-positive text-white q-mb-md rounded-borders">
+            <template v-slot:avatar>
+              <q-icon name="check_circle" />
+            </template>
+            {{ dbSuccessMessage }}
+          </q-banner>
 
-          <div class="row justify-end q-mt-lg">
-            <q-btn color="primary" label="Comenzar Configuración" unelevated @click="step = 2" />
+          <div class="row q-col-gutter-md">
+            <div class="col-12 col-sm-8">
+              <q-input
+                v-model="dbForm.host"
+                label="Host / Servidor de BD *"
+                outlined
+                dense
+                hint="Ej: localhost o IP del servidor"
+                :rules="[val => !!val || 'El host es obligatorio']"
+              />
+            </div>
+            <div class="col-12 col-sm-4">
+              <q-input
+                v-model.number="dbForm.port"
+                label="Puerto *"
+                type="number"
+                outlined
+                dense
+                :rules="[val => !!val || 'El puerto es obligatorio']"
+              />
+            </div>
+
+            <div class="col-12 col-sm-6">
+              <q-input
+                v-model="dbForm.user"
+                label="Usuario de PostgreSQL *"
+                outlined
+                dense
+                hint="Por defecto: postgres"
+                :rules="[val => !!val || 'El usuario es obligatorio']"
+              />
+            </div>
+
+            <div class="col-12 col-sm-6">
+              <q-input
+                v-model="dbForm.password"
+                label="Contraseña de PostgreSQL"
+                :type="showDbPassword ? 'text' : 'password'"
+                outlined
+                dense
+              >
+                <template v-slot:append>
+                  <q-icon
+                    :name="showDbPassword ? 'visibility_off' : 'visibility'"
+                    class="cursor-pointer"
+                    @click="showDbPassword = !showDbPassword"
+                  />
+                </template>
+              </q-input>
+            </div>
+
+            <div class="col-12">
+              <q-input
+                v-model="dbForm.database"
+                label="Nombre de la Base de Datos *"
+                outlined
+                dense
+                hint="Nombre de la base de datos a crear o conectar (Ej: crudbase_db)"
+                :rules="[val => !!val || 'El nombre de la BD es obligatorio']"
+              />
+            </div>
+          </div>
+
+          <div class="row justify-between q-mt-lg">
+            <div>
+              <q-chip v-if="isDbReady" color="positive" text-color="white" icon="check">
+                Base de Datos Lista
+              </q-chip>
+            </div>
+            <q-btn
+              color="primary"
+              icon="dns"
+              label="Probar, Crear BD y Continuar"
+              unelevated
+              :loading="dbTesting"
+              @click="submitDatabaseSetup"
+            />
           </div>
         </q-step>
 
@@ -241,18 +303,19 @@
         <q-step :name="5" title="Instalación" icon="task_alt">
           <div class="text-subtitle1 text-weight-bold q-mb-xs text-primary">Confirmar e Instalar</div>
           <p class="text-body2 text-grey-8">
-            Revisa los datos antes de inicializar la plataforma. Al hacer clic en <strong>Inicializar Sistema</strong>, se crearán las tablas, roles, la sede matriz y tu usuario administrador.
+            Revisa los datos antes de inicializar la plataforma. Al hacer clic en <strong>Inicializar Sistema</strong>, 
+            se crearán los módulos, roles, la sede matriz y tu usuario administrador.
           </p>
 
           <q-card flat bordered class="q-pa-md bg-grey-1 rounded-borders q-my-md">
             <div class="row q-col-gutter-sm">
               <div class="col-12 col-sm-6">
-                <span class="text-grey-7 text-caption">Empresa:</span>
-                <div class="text-weight-bold">{{ form.company.name }} ({{ form.company.taxId || 'Sin RIF' }})</div>
+                <span class="text-grey-7 text-caption">Base de Datos:</span>
+                <div class="text-weight-bold">{{ dbForm.database }} ({{ dbForm.host }}:{{ dbForm.port }})</div>
               </div>
               <div class="col-12 col-sm-6">
-                <span class="text-grey-7 text-caption">Zona Horaria:</span>
-                <div class="text-weight-bold">{{ form.company.timezone }}</div>
+                <span class="text-grey-7 text-caption">Empresa:</span>
+                <div class="text-weight-bold">{{ form.company.name }} ({{ form.company.taxId || 'Sin RIF' }})</div>
               </div>
               <div class="col-12 col-sm-6">
                 <span class="text-grey-7 text-caption">Sede Principal:</span>
@@ -284,7 +347,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useNotifications } from '../composables/core/useNotifications'
 import { useSettingsStore } from '../stores/settings'
 
@@ -296,8 +359,20 @@ const notify = useNotifications()
 const settingsStore = useSettingsStore()
 
 const step = ref(1)
+const isDbReady = ref(false)
+const dbTesting = ref(false)
+const dbSuccessMessage = ref('')
+const showDbPassword = ref(false)
 const installing = ref(false)
 const logoFile = ref<File | null>(null)
+
+const dbForm = ref({
+  host: 'localhost',
+  port: 5432,
+  user: 'postgres',
+  password: '',
+  database: 'crudbase_db'
+})
 
 const timezones = [
   'America/Caracas',
@@ -330,6 +405,40 @@ const form = ref({
   }
 })
 
+onMounted(async () => {
+  try {
+    const res: any = await $fetch('/api/setup/status')
+    if (res.isDatabaseConfigured) {
+      isDbReady.value = true
+      step.value = 2 // Si la BD ya está configurada, salta directo al paso de la empresa
+    }
+  } catch {
+    // Modo inicial
+  }
+})
+
+const submitDatabaseSetup = async () => {
+  dbTesting.value = true
+  dbSuccessMessage.value = ''
+  try {
+    const res: any = await $fetch('/api/setup/database', {
+      method: 'POST',
+      body: dbForm.value
+    })
+
+    isDbReady.value = true
+    dbSuccessMessage.value = res.message || 'Base de datos conectada, creada y sincronizada exitosamente.'
+    notify.success('¡Base de datos conectada y creada con éxito!')
+    setTimeout(() => {
+      step.value = 2
+    }, 1200)
+  } catch (error: any) {
+    notify.error(error.data?.message || 'Error al conectar a PostgreSQL. Verifica los datos.')
+  } finally {
+    dbTesting.value = false
+  }
+}
+
 const handleLogoUpload = (file: File | null) => {
   if (!file) return
   const reader = new FileReader()
@@ -353,7 +462,6 @@ const submitInstall = async () => {
     })
 
     notify.success('¡Sistema aprovisionado e instalado exitosamente!')
-    // Recargar configuraciones públicas para que el Login tenga el logo y nombre
     await settingsStore.fetchPublicSettings(true)
     navigateTo('/login')
   } catch (error: any) {

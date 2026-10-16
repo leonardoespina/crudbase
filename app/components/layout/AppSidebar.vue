@@ -14,6 +14,25 @@
 
     <q-separator class="q-my-sm" />
 
+    <!-- Compensaciones y Nómina -->
+    <q-item-label header class="text-weight-bold text-uppercase text-grey-7">
+      Compensación y Pagos
+    </q-item-label>
+
+    <q-item
+      clickable
+      v-ripple
+      to="/compensacion/empleados"
+      active-class="bg-blue-1 text-primary"
+    >
+      <q-item-section avatar>
+        <q-icon name="badge" />
+      </q-item-section>
+      <q-item-section>Personal / Empleados</q-item-section>
+    </q-item>
+
+    <q-separator class="q-my-sm" />
+
     <!-- Catálogos y Operación -->
     <q-item-label header class="text-weight-bold text-uppercase text-grey-7" v-if="can('BRANCHES', 'read')">
       Organización

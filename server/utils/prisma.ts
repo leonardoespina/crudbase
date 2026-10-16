@@ -6,7 +6,17 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 // Modelos con soft delete
-const SOFT_DELETE_MODELS = ['User', 'Role', 'Branch']
+const SOFT_DELETE_MODELS = [
+  'User',
+  'Role',
+  'Branch',
+  'Empleado',
+  'Gerencia',
+  'Cargo',
+  'NivelSalarial',
+  'ConceptoBono',
+  'SolicitudCompensacion'
+]
 
 function createPrismaClient(databaseUrl?: string) {
   const url = databaseUrl || process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/placeholder_db'

@@ -1,5 +1,5 @@
-// Prisma Schema - CRUDBASE
-// Sistema Empresarial Base con Soporte Multisede, RBAC Dinámico y Auditoría
+// Prisma Schema - CRUDBASE & GESTIÓN DE COMPENSACIÓN Y PAGOS
+// Sistema Empresarial Base con Soporte Multisede, RBAC Dinámico, Auditoría y Módulo de Pagos
 
 generator client {
   provider = "prisma-client-js"
@@ -10,7 +10,56 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ── SEDES (MULTISEDE NATIVO) ────────────────────────────────────────────────
+// ============================================================================
+// ENUMERACIONES DEL SISTEMA (EN ESPAÑOL)
+// ============================================================================
+
+enum CodigoMoneda {
+  USD // Dólares ($)
+  VES // Bolívares (Bs)
+  EUR // Euros (€)
+}
+
+enum EstadoSolicitud {
+  BORRADOR           // En preparación por la gerencia solicitante
+  PENDIENTE_REVISION // En buzón de aprobación (Talento Humano / Gerencia General)
+  APROBADA           // Aprobada formalmente, lista para pago en caja
+  PAGADA_PARCIAL     // Con abonos parciales entregados
+  PAGADA             // 100% liquidada a todos los trabajadores
+  RECHAZADA          // Devuelta con observaciones
+  ANULADA            // Cancelada por el emisor
+}
+
+enum EstadoDetallePago {
+  PENDIENTE // Por pagar en taquilla
+  PARCIAL   // Abonado parcialmente
+  PAGADO    // Liquidado completamente
+  BLOQUEADO // Bloqueo preventivo de Talento Humano
+  DIFERIDO  // Diferido para corte posterior
+}
+
+enum MetodoValidacion {
+  CEDULA                  // Validación visual por documento de identidad
+  PIN                     // Código numérico o clave personal
+  AUTORIZACION_SUPERVISOR // Permiso especial de supervisor en taquilla
+  HUELLA                  // Sensor biométrico (interfaz abierta para fase futura)
+}
+
+enum TipoBalance {
+  A_FAVOR   // Saldo que se le debe al trabajador (vuelto pendiente)
+  EN_CONTRA // Saldo que el trabajador debe reintegrar
+}
+
+enum EstadoBalance {
+  PENDIENTE // Pendiente por aplicar en siguiente solicitud
+  APLICADO  // Ya descontado o sumado en una solicitud
+  ANULADO   // Cancelado por ajuste administrativo
+}
+
+// ============================================================================
+// MÓDULOS BASE (CRUDBASE CORE)
+// ============================================================================
+
 model Branch {
   id          Int       @id @default(autoincrement())
   code        String    @unique // Ej: "CENTRAL", "NORTE"
@@ -21,17 +70,19 @@ model Branch {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  users       User[]
+  users                   User[]
+  empleados               Empleado[]
+  solicitudesCompensacion SolicitudCompensacion[]
+  transaccionesPago       TransaccionPago[]
 
   @@map("branches")
 }
 
-// ── ROLES Y MATRIZ DINÁMICA DE PERMISOS ──────────────────────────────────────
 model Role {
   id          Int              @id @default(autoincrement())
   name        String           @unique // Ej: "ADMIN", "OPERATOR"
   description String?
-  isSystem    Boolean          @default(false) @map("is_system") // Protege al rol ADMIN de ser borrado
+  isSystem    Boolean          @default(false) @map("is_system")
   deletedAt   DateTime?        @map("deleted_at")
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
@@ -44,9 +95,9 @@ model Role {
 
 model Module {
   id          Int              @id @default(autoincrement())
-  code        String           @unique // Ej: "USERS", "ROLES", "BRANCHES", "AUDIT", "SETTINGS"
-  name        String           // Ej: "Gestión de Usuarios"
-  category    String           @default("GENERAL") // Ej: "SEGURIDAD", "CATALOGOS", "OPERACIONES"
+  code        String           @unique
+  name        String
+  category    String           @default("GENERAL")
   permissions RolePermission[]
 
   @@map("modules")
@@ -68,7 +119,6 @@ model RolePermission {
   @@map("role_permissions")
 }
 
-// ── USUARIOS ───────────────────────────────────────────────────────────────
 model User {
   id              Int       @id @default(autoincrement())
   username        String    @unique
@@ -81,7 +131,7 @@ model User {
   roleId          Int       @map("role_id")
   role            Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
-  branchId        Int?      @map("branch_id") // Sede asignada (null = acceso global si es Admin)
+  branchId        Int?      @map("branch_id")
   branch          Branch?   @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   activeSessionId String?   @map("active_session_id")
@@ -89,22 +139,28 @@ model User {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  auditLogs       AuditLog[]
+  auditLogs           AuditLog[]
+  solicitudesCreadas  SolicitudCompensacion[]   @relation("SolicitudesCreadas")
+  solicitudesAprobadas SolicitudCompensacion[]  @relation("SolicitudesAprobadas")
+  transaccionesPago   TransaccionPago[]
+  bloqueosRealizados  BloqueoPersonal[]
+  evaluacionesOdi     EvaluacionDesempenoODI[]
+  notasBitacora       NotaBitacoraSolicitud[]
+  notasDetallePago    NotaDetallePago[]
 
   @@index([roleId])
   @@index([branchId])
   @@map("users")
 }
 
-// ── AUDITORÍA INALTERABLE ──────────────────────────────────────────────────
 model AuditLog {
   id        Int      @id @default(autoincrement())
   userId    Int?     @map("user_id")
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action    String   // "CREATE", "UPDATE", "DELETE", "LOGIN", "LOGOUT"
-  entity    String   // "User", "Role", "Branch", etc.
+  action    String
+  entity    String
   entityId  Int?     @map("entity_id")
-  details   String?  @db.Text // JSON con antes/después o payload
+  details   String?  @db.Text
   ip        String?
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -114,7 +170,6 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-// ── CONFIGURACIÓN DEL SISTEMA ──────────────────────────────────────────────
 model SystemSetting {
   id          Int      @id @default(autoincrement())
   key         String   @unique
@@ -126,7 +181,6 @@ model SystemSetting {
   @@map("system_settings")
 }
 
-// ── CONTROL DE IDEMPOTENCIA (TRANSACCIONES SEGURAS) ─────────────────────────
 model IdempotencyKey {
   key        String   @id
   path       String
@@ -139,4 +193,341 @@ model IdempotencyKey {
   @@index([userId])
   @@index([expiresAt])
   @@map("idempotency_keys")
+}
+
+// ============================================================================
+// 1. ESTRUCTURA ORGANIZACIONAL Y TRABAJADORES (EN ESPAÑOL)
+// ============================================================================
+
+model Gerencia {
+  id            Int                      @id @default(autoincrement())
+  codigo        String                   @unique
+  nombre        String
+  descripcion   String?
+  activo        Boolean                  @default(true)
+  deletedAt     DateTime?                @map("eliminado_en")
+  createdAt     DateTime                 @default(now()) @map("creado_en")
+  updatedAt     DateTime                 @updatedAt @map("actualizado_en")
+
+  empleados     Empleado[]
+  solicitudes   SolicitudCompensacion[]
+
+  @@map("gerencias")
+}
+
+model Cargo {
+  id            Int                      @id @default(autoincrement())
+  codigo        String                   @unique
+  nombre        String
+  descripcion   String?
+  activo        Boolean                  @default(true)
+  deletedAt     DateTime?                @map("eliminado_en")
+  createdAt     DateTime                 @default(now()) @map("creado_en")
+  updatedAt     DateTime                 @updatedAt @map("actualizado_en")
+
+  empleados     Empleado[]
+  tabuladores   TabuladorBono[]
+
+  @@map("cargos")
+}
+
+model NivelSalarial {
+  id              Int                      @id @default(autoincrement())
+  codigo          String                   @unique // Ej: "N-1", "N-2"
+  nombre          String
+  nivelJerarquico Int                      @map("nivel_jerarquico")
+  activo          Boolean                  @default(true)
+  deletedAt       DateTime?                @map("eliminado_en")
+  createdAt       DateTime                 @default(now()) @map("creado_en")
+  updatedAt       DateTime                 @updatedAt @map("actualizado_en")
+
+  empleados       Empleado[]
+  tabuladores     TabuladorBono[]
+
+  @@map("niveles_salariales")
+}
+
+model Empleado {
+  id                Int                      @id @default(autoincrement())
+  cedula            String                   @unique
+  nombres           String
+  apellidos         String
+  correo            String?
+  telefono          String?
+  sedeId            Int                      @map("sede_id")
+  gerenciaId        Int                      @map("gerencia_id")
+  cargoId           Int                      @map("cargo_id")
+  nivelSalarialId   Int?                     @map("nivel_salarial_id")
+  activo            Boolean                  @default(true)
+  bloqueadoParaPago Boolean                  @default(false) @map("bloqueado_para_pago")
+  motivoBloqueo     String?                  @map("motivo_bloqueo")
+  plantillaHuella   Bytes?                   @map("plantilla_huella") // Espacio reservado para biometría física
+  deletedAt         DateTime?                @map("eliminado_en")
+  createdAt         DateTime                 @default(now()) @map("creado_en")
+  updatedAt         DateTime                 @updatedAt @map("actualizado_en")
+
+  sede              Branch                   @relation(fields: [sedeId], references: [id])
+  gerencia          Gerencia                 @relation(fields: [gerenciaId], references: [id])
+  cargo             Cargo                    @relation(fields: [cargoId], references: [id])
+  nivelSalarial     NivelSalarial?           @relation(fields: [nivelSalarialId], references: [id])
+
+  detallesPago      DetallePagoCompensacion[]
+  balances          BalancePersonal[]
+  bloqueos          BloqueoPersonal[]
+  evaluacionesOdi   EvaluacionDesempenoODI[]
+
+  @@index([sedeId])
+  @@index([gerenciaId])
+  @@index([cargoId])
+  @@map("empleados")
+}
+
+// ============================================================================
+// 2. CONCEPTOS DE BONOS Y TABULADORES (EN ESPAÑOL)
+// ============================================================================
+
+model ConceptoBono {
+  id                      Int                      @id @default(autoincrement())
+  codigo                  String                   @unique
+  nombre                  String
+  descripcion             String?
+  moneda                  CodigoMoneda             @default(USD)
+  montoBasePredeterminado Decimal                  @default(0.00) @map("monto_base_predeterminado") @db.Decimal(18, 2)
+  activo                  Boolean                  @default(true)
+  deletedAt               DateTime?                @map("eliminado_en")
+  createdAt               DateTime                 @default(now()) @map("creado_en")
+  updatedAt               DateTime                 @updatedAt @map("actualizado_en")
+
+  tabuladores             TabuladorBono[]
+  activaciones            ActivacionPeriodoBono[]
+  solicitudes             SolicitudCompensacion[]
+
+  @@map("conceptos_bonos")
+}
+
+model TabuladorBono {
+  id               Int          @id @default(autoincrement())
+  conceptoBonoId   Int          @map("concepto_bono_id")
+  cargoId          Int          @map("cargo_id")
+  nivelSalarialId  Int          @map("nivel_salarial_id")
+  montoBono        Decimal      @map("monto_bono") @db.Decimal(18, 2)
+  porcentajeAjuste Decimal      @default(0.00) @map("porcentaje_ajuste") @db.Decimal(5, 2)
+  activo           Boolean      @default(true)
+  createdAt        DateTime     @default(now()) @map("creado_en")
+  updatedAt        DateTime     @updatedAt @map("actualizado_en")
+
+  conceptoBono     ConceptoBono  @relation(fields: [conceptoBonoId], references: [id])
+  cargo            Cargo         @relation(fields: [cargoId], references: [id])
+  nivelSalarial    NivelSalarial @relation(fields: [nivelSalarialId], references: [id])
+
+  @@unique([conceptoBonoId, cargoId, nivelSalarialId])
+  @@map("tabuladores_bonos")
+}
+
+model ActivacionPeriodoBono {
+  id             Int          @id @default(autoincrement())
+  conceptoBonoId Int          @map("concepto_bono_id")
+  mes            Int          // 1..12
+  anio           Int          // 2026
+  quincena       Int          @default(1) // 1 o 2
+  activo         Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("creado_en")
+
+  conceptoBono   ConceptoBono @relation(fields: [conceptoBonoId], references: [id])
+
+  @@unique([conceptoBonoId, mes, anio, quincena])
+  @@map("activaciones_periodos_bonos")
+}
+
+// ============================================================================
+// 3. SOLICITUDES Y DETALLES DE COMPENSACIÓN (EN ESPAÑOL)
+// ============================================================================
+
+model SolicitudCompensacion {
+  id                       Int                      @id @default(autoincrement())
+  numeroSolicitud          String                   @unique @map("numero_solicitud")
+  conceptoBonoId           Int                      @map("concepto_bono_id")
+  gerenciaId               Int                      @map("gerencia_id")
+  sedeId                   Int                      @map("sede_id")
+  mes                      Int
+  anio                     Int
+  quincena                 Int                      @default(1)
+  moneda                   CodigoMoneda             @default(USD)
+  estado                   EstadoSolicitud          @default(BORRADOR)
+  aplicaBalance            Boolean                  @default(false) @map("aplica_balance")
+  montoTotalBase           Decimal                  @default(0.00) @map("monto_total_base") @db.Decimal(18, 2)
+  montoTotalAjustes        Decimal                  @default(0.00) @map("monto_total_ajustes") @db.Decimal(18, 2)
+  montoTotalPagar          Decimal                  @default(0.00) @map("monto_total_pagar") @db.Decimal(18, 2)
+  montoTotalPagado         Decimal                  @default(0.00) @map("monto_total_pagado") @db.Decimal(18, 2)
+  montoTotalSaldoPendiente Decimal                  @default(0.00) @map("monto_total_saldo_pendiente") @db.Decimal(18, 2)
+  totalTrabajadores        Int                      @default(0) @map("total_trabajadores")
+  buzonActual              String                   @default("TALENTO_HUMANO") @map("buzon_actual")
+  observaciones            String?
+  creadoPorId              Int                      @map("creado_por_id")
+  aprobadoPorId            Int?                     @map("aprobado_por_id")
+  fechaAprobacion          DateTime?                @map("fecha_aprobacion")
+  deletedAt                DateTime?                @map("eliminado_en")
+  createdAt                DateTime                 @default(now()) @map("creado_en")
+  updatedAt                DateTime                 @updatedAt @map("actualizado_en")
+
+  conceptoBono             ConceptoBono             @relation(fields: [conceptoBonoId], references: [id])
+  gerencia                 Gerencia                 @relation(fields: [gerenciaId], references: [id])
+  sede                     Branch                   @relation(fields: [sedeId], references: [id])
+  creadoPor                User                     @relation("SolicitudesCreadas", fields: [creadoPorId], references: [id])
+  aprobadoPor              User?                    @relation("SolicitudesAprobadas", fields: [aprobadoPorId], references: [id])
+
+  detalles                 DetallePagoCompensacion[]
+  notas                    NotaBitacoraSolicitud[]
+
+  @@index([sedeId])
+  @@index([gerenciaId])
+  @@index([mes, anio])
+  @@map("solicitudes_compensacion")
+}
+
+model DetallePagoCompensacion {
+  id                    Int                      @id @default(autoincrement())
+  solicitudId           Int                      @map("solicitud_id")
+  empleadoId            Int                      @map("empleado_id")
+  cedulaSnapshot        String                   @map("cedula_snapshot")
+  nombreSnapshot        String                   @map("nombre_snapshot")
+  cargoSnapshot         String                   @map("cargo_snapshot")
+  gerenciaSnapshot      String                   @map("gerencia_snapshot")
+  montoBase             Decimal                  @map("monto_base") @db.Decimal(18, 2)
+  montoAjuste           Decimal                  @default(0.00) @map("monto_ajuste") @db.Decimal(18, 2)
+  saldoBalanceAplicado  Decimal                  @default(0.00) @map("saldo_balance_aplicado") @db.Decimal(18, 2)
+  montoTotal            Decimal                  @map("monto_total") @db.Decimal(18, 2)
+  montoPagado           Decimal                  @default(0.00) @map("monto_pagado") @db.Decimal(18, 2)
+  montoDiferenciaVuelto Decimal                  @default(0.00) @map("monto_diferencia_vuelto") @db.Decimal(18, 2)
+  montoPendiente        Decimal                  @map("monto_pendiente") @db.Decimal(18, 2)
+  estado                EstadoDetallePago        @default(PENDIENTE)
+  esInvitado            Boolean                  @default(false) @map("es_invitado")
+  createdAt             DateTime                 @default(now()) @map("creado_en")
+  updatedAt             DateTime                 @updatedAt @map("actualizado_en")
+
+  solicitud             SolicitudCompensacion    @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  empleado              Empleado                 @relation(fields: [empleadoId], references: [id])
+
+  transaccionesPago     TransaccionPago[]
+  notas                 NotaDetallePago[]
+
+  @@unique([solicitudId, empleadoId])
+  @@index([solicitudId])
+  @@index([empleadoId])
+  @@map("detalles_pagos_compensacion")
+}
+
+// ============================================================================
+// 4. CAJA, DESEMBOLSOS Y BALANCES (EN ESPAÑOL)
+// ============================================================================
+
+model TransaccionPago {
+  id                          Int                      @id @default(autoincrement())
+  detallePagoId               Int                      @map("detalle_pago_id")
+  cajeroId                    Int                      @map("cajero_id")
+  sedeId                      Int                      @map("sede_id")
+  montoEntregado              Decimal                  @map("monto_entregado") @db.Decimal(18, 2)
+  montoEfectivoReal           Decimal                  @map("monto_efectivo_real") @db.Decimal(18, 2)
+  montoVueltoGenerado         Decimal                  @default(0.00) @map("monto_vuelto_generado") @db.Decimal(18, 2)
+  metodoValidacion            MetodoValidacion         @default(CEDULA) @map("metodo_validacion")
+  claveAutorizacionSupervisor String?                  @map("clave_autorizacion_supervisor")
+  numeroReferencia            String?                  @map("numero_referencia")
+  observaciones               String?
+  createdAt                   DateTime                 @default(now()) @map("creado_en")
+
+  detallePago                 DetallePagoCompensacion  @relation(fields: [detallePagoId], references: [id])
+  cajero                      User                     @relation(fields: [cajeroId], references: [id])
+  sede                        Branch                   @relation(fields: [sedeId], references: [id])
+
+  @@index([detallePagoId])
+  @@index([cajeroId])
+  @@map("transacciones_pagos")
+}
+
+model BalancePersonal {
+  id                  Int           @id @default(autoincrement())
+  empleadoId          Int           @map("empleado_id")
+  tipoBalance         TipoBalance   @map("tipo_balance")
+  monto               Decimal       @db.Decimal(18, 2)
+  estado              EstadoBalance @default(PENDIENTE)
+  motivo              String
+  solicitudOrigenId   Int?          @map("solicitud_origen_id")
+  solicitudAplicadaId Int?          @map("solicitud_aplicada_id")
+  createdAt           DateTime      @default(now()) @map("creado_en")
+  updatedAt           DateTime      @updatedAt @map("actualizado_en")
+
+  empleado            Empleado      @relation(fields: [empleadoId], references: [id])
+
+  @@index([empleadoId])
+  @@map("balances_personal")
+}
+
+model BloqueoPersonal {
+  id               Int       @id @default(autoincrement())
+  empleadoId       Int       @map("empleado_id")
+  motivo           String
+  activo           Boolean   @default(true)
+  creadoPorId      Int       @map("creado_por_id")
+  fechaDesbloqueo  DateTime? @map("fecha_desbloqueo")
+  motivoDesbloqueo String?   @map("motivo_desbloqueo")
+  createdAt        DateTime  @default(now()) @map("creado_en")
+
+  empleado         Empleado  @relation(fields: [empleadoId], references: [id])
+  creadoPor        User      @relation(fields: [creadoPorId], references: [id])
+
+  @@index([empleadoId])
+  @@map("bloqueos_personal")
+}
+
+// ============================================================================
+// 5. EVALUACIÓN DE DESEMPEÑO (O.D.I.) Y BITÁCORAS (EN ESPAÑOL)
+// ============================================================================
+
+model EvaluacionDesempenoODI {
+  id                     Int       @id @default(autoincrement())
+  empleadoId             Int       @map("empleado_id")
+  evaluadorId            Int       @map("evaluador_id")
+  mes                    Int
+  anio                   Int
+  porcentajeObjetivos    Decimal   @map("porcentaje_objetivos") @db.Decimal(5, 2) // Hasta 140%
+  porcentajeCompetencias Decimal   @map("porcentaje_competencias") @db.Decimal(5, 2) // Hasta 60%
+  porcentajeTotalFinal   Decimal   @map("porcentaje_total_final") @db.Decimal(5, 2)
+  observaciones          String?
+  createdAt              DateTime  @default(now()) @map("creado_en")
+
+  empleado               Empleado  @relation(fields: [empleadoId], references: [id])
+  evaluador              User      @relation(fields: [evaluadorId], references: [id])
+
+  @@unique([empleadoId, mes, anio])
+  @@map("evaluaciones_desempeno_odi")
+}
+
+model NotaBitacoraSolicitud {
+  id           Int                   @id @default(autoincrement())
+  solicitudId  Int                   @map("solicitud_id")
+  usuarioId    Int                   @map("usuario_id")
+  nota         String
+  buzonOrigen  String?               @map("buzon_origen")
+  buzonDestino String?               @map("buzon_destino")
+  createdAt    DateTime              @default(now()) @map("creado_en")
+
+  solicitud    SolicitudCompensacion @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  usuario      User                  @relation(fields: [usuarioId], references: [id])
+
+  @@map("notas_bitacora_solicitudes")
+}
+
+model NotaDetallePago {
+  id            Int                     @id @default(autoincrement())
+  detallePagoId Int                     @map("detalle_pago_id")
+  usuarioId     Int                     @map("usuario_id")
+  montoAnterior Decimal                 @map("monto_anterior") @db.Decimal(18, 2)
+  montoNuevo    Decimal                 @map("monto_nuevo") @db.Decimal(18, 2)
+  justificacion String
+  createdAt     DateTime                @default(now()) @map("creado_en")
+
+  detallePago   DetallePagoCompensacion @relation(fields: [detallePagoId], references: [id], onDelete: Cascade)
+  usuario       User                    @relation(fields: [usuarioId], references: [id])
+
+  @@map("notas_detalles_pagos")
 }
